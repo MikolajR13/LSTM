@@ -1,3 +1,4 @@
+import os
 import re
 import torch
 import torch.nn as nn
@@ -43,8 +44,11 @@ class CustomLSTM(nn.Module):
         self.h2o = nn.Linear(hidden_size, output_size)
 
     def forward(self, input, hidden, cell):
-        embedded = self.embedding(input).view(1, -1)  # Zmieniamy wymiar tensora wejściowego
+        print(f"Input shape: {input.shape}")
+        embedded = self.embedding(input)
+        print(f"Embedded shape: {embedded.shape}")
         combined = torch.cat((embedded, hidden), 1)
+        print(f"Combined shape: {combined.shape}")
         f_t = torch.sigmoid(self.i2f(combined))
         i_t = torch.sigmoid(self.i2i(combined))
         o_t = torch.sigmoid(self.i2o(combined))
