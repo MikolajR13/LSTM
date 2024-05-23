@@ -44,7 +44,8 @@ class CustomLSTM(nn.Module):
         self.h2o = nn.Linear(hidden_size, output_size)
 
     def forward(self, input, hidden, cell):
-        combined = torch.cat((input, hidden), 1)
+        embedded = self.embedding(input).view(1, -1)  # Zmieniamy wymiar tensora wejściowego
+        combined = torch.cat((embedded, hidden), 1)
         f_t = torch.sigmoid(self.i2f(combined))
         i_t = torch.sigmoid(self.i2i(combined))
         o_t = torch.sigmoid(self.i2o(combined))
@@ -64,7 +65,7 @@ def train_step(model, input_tensor, target_tensor, criterion, optimizer):
     model.zero_grad()
     loss = 0
     for i in range(len(input_tensor)):
-        input_char = model.embedding(input_tensor[i].unsqueeze(0))
+        input_char = input_tensor[i].unsqueeze(0)  # Zmieniamy wymiar tensorów wejściowych
         target_char = target_tensor[i]
         output, hidden, cell = model(input_char, hidden, cell)
         loss += criterion(output, target_char.view(1))
