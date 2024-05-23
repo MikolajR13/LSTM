@@ -1,4 +1,3 @@
-import os
 import re
 import torch
 import torch.nn as nn
@@ -60,13 +59,15 @@ class CustomLSTM(nn.Module):
 
 
 # Funkcja treningowa
-def train_step(model, input_tensor, target_tensor, criterion, optimizer):
+def train_step(model, input_tensor, target_tensor, criterion, optimizer, device):
     hidden, cell = model.init_hidden()
+    hidden, cell = hidden.to(device), cell.to(device)
     model.zero_grad()
     loss = 0
     for i in range(len(input_tensor)):
-        input_char = input_tensor[i].unsqueeze(0)  # Zmieniamy wymiar tensorów wejściowych
-        target_char = target_tensor[i]
+        input_char = input_tensor[i].unsqueeze(0).to(
+            device)  # Zmieniamy wymiar tensorów wejściowych i przenosimy do GPU
+        target_char = target_tensor[i].to(device)
         output, hidden, cell = model(input_char, hidden, cell)
         loss += criterion(output, target_char.view(1))
     loss.backward()
@@ -74,15 +75,14 @@ def train_step(model, input_tensor, target_tensor, criterion, optimizer):
     return loss.item()
 
 
-def train(model, dataloader, epochs, criterion, optimizer):
+def train(model, dataloader, epochs, criterion, optimizer, device):
     model.train()
     for epoch in range(epochs):
         total_loss = 0
         print(f"Starting epoch {epoch + 1}/{epochs}")
         for inputs, targets in tqdm(dataloader, desc=f"Epoch {epoch + 1}"):
-            inputs = inputs.to(torch.long)
-            targets = targets.to(torch.long)
-            loss = train_step(model, inputs, targets, criterion, optimizer)
+            inputs, targets = inputs.to(device), targets.to(device)
+            loss = train_step(model, inputs, targets, criterion, optimizer, device)
             total_loss += loss
             tqdm.write(f"Batch loss: {loss:.4f}")
         avg_loss = total_loss / len(dataloader)
@@ -90,10 +90,11 @@ def train(model, dataloader, epochs, criterion, optimizer):
 
 
 # Funkcja do generowania tekstu
-def generate(model, start_str, length, char_to_idx, idx_to_char):
+def generate(model, start_str, length, char_to_idx, idx_to_char, device):
     model.eval()
     hidden, cell = model.init_hidden()
-    input = torch.tensor([char_to_idx[char] for char in start_str], dtype=torch.long)
+    hidden, cell = hidden.to(device), cell.to(device)
+    input = torch.tensor([char_to_idx[char] for char in start_str], dtype=torch.long).to(device)
     generated_str = start_str
 
     for _ in range(length):
@@ -103,13 +104,17 @@ def generate(model, start_str, length, char_to_idx, idx_to_char):
         top_i = torch.multinomial(output_dist, 1)[0]
         predicted_char = idx_to_char[top_i.item()]
         generated_str += predicted_char
-        input = torch.cat([input, torch.tensor([top_i], dtype=torch.long)], dim=0)
+        input = torch.cat([input, torch.tensor([top_i], dtype=torch.long).to(device)], dim=0)
 
     return generated_str
 
 
 # Główna funkcja
 if __name__ == "__main__":
+    # Sprawdzenie dostępności GPU
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(f"Using device: {device}")
+
     # Ładowanie danych z WikiText-103
     print("Loading WikiText-103 dataset...")
     dataset = datasets.load_dataset('wikitext', 'wikitext-103-v1')
@@ -145,17 +150,17 @@ if __name__ == "__main__":
     output_size = vocab_size
 
     print("Initializing model...")
-    model = CustomLSTM(vocab_size, hidden_size, output_size)
+    model = CustomLSTM(vocab_size, hidden_size, output_size).to(device)
     criterion = nn.CrossEntropyLoss()
     optimizer = optim.Adam(model.parameters(), lr=0.001)
 
     # Trening modelu
     print("Starting training...")
-    train(model, dataloader, epochs=100, criterion=criterion, optimizer=optimizer)
+    train(model, dataloader, epochs=100, criterion=criterion, optimizer=optimizer, device=device)
 
     # Generowanie tekstu
     print("Generating text...")
     start_str = "hello"
-    generated_text = generate(model, start_str, 100, char_to_idx, idx_to_char)
+    generated_text = generate(model, start_str, 100, char_to_idx, idx_to_char, device)
     print("Generated text:")
     print(generated_text)
