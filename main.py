@@ -72,9 +72,9 @@ class RNN(nn.Module):
 class Generator:
     def __init__(self):
         self.chunk_len = 250
-        self.num_epochs = 5000
+        self.num_epochs = 10000
         self.batch_size = 1
-        self.print_every = 50
+        self.print_every = 25
         self.hidden_size = 256
         self.num_layers = 2
         self.lr = 0.003
