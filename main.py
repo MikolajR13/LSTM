@@ -11,9 +11,9 @@ from torch.utils.tensorboard import SummaryWriter
 import datasets
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-print("Loading WikiText-103 dataset...")
-dataset = datasets.load_dataset('wikitext', 'wikitext-103-v1')
-
+#print("Loading WikiText-103 dataset...")
+#dataset = datasets.load_dataset('wikitext', 'wikitext-103-v1')
+filepath = "cleaned_text.txt"
 def ensure_unicode(text):
     if isinstance(text, bytes):
         return text.decode('utf-8', 'ignore')
@@ -22,31 +22,42 @@ def ensure_unicode(text):
     else:
         raise ValueError("Unsupported string type")
 
-def filter_text(text):
-    return ''.join([char for char in text if char in all_chars])
+# Funkcja do filtrowania tekstu
+def filter_text(text, allowed_chars):
+    return ''.join([char for char in text if char in allowed_chars])
 
-train_text = ' '.join(ensure_unicode(text) for text in dataset['train']['text'])
-val_text = ' '.join(ensure_unicode(text) for text in dataset['validation']['text'])
-test_text = ' '.join(ensure_unicode(text) for text in dataset['test']['text'])
+# Wczytanie i przetwarzanie pliku
+with open(filepath, 'r', encoding='utf-8', errors='ignore') as file:
+    content = file.read()
+    content = ensure_unicode(content)
+    all_chars = string.printable
+    filtered_text = filter_text(content, all_chars)
+
+# Użycie przefiltrowanego tekstu jako 'all_text'
+all_text = filtered_text
+number_of_char = len(all_text)
+#train_text = ' '.join(ensure_unicode(text) for text in dataset['train']['text'])
+#val_text = ' '.join(ensure_unicode(text) for text in dataset['validation']['text'])
+#test_text = ' '.join(ensure_unicode(text) for text in dataset['test']['text'])
 
 all_chars = string.printable
 number_of_chars = len(all_chars)
 print(all_chars)
 
 # Filtrowanie tekstów
-train_text = filter_text(train_text)
-val_text = filter_text(val_text)
-test_text = filter_text(test_text)
-all_text = train_text + val_text + test_text
-number_of_char = len(all_text)
+#train_text = filter_text(train_text)
+#val_text = filter_text(val_text)
+#test_text = filter_text(test_text)
+#all_text = train_text + val_text + test_text
+#number_of_char = len(all_text)
 
 print(len(all_text))
-print(len(train_text))
-print(len(test_text))
-print(len(val_text))
-print(type(train_text))
-print(type(val_text))
-print(type(test_text))
+#print(len(train_text))
+#print(len(test_text))
+#print(len(val_text))
+#print(type(train_text))
+#print(type(val_text))
+#print(type(test_text))
 
 class RNN(nn.Module):
     def __init__(self, input_size, hidden_size, num_layers, output_size):
