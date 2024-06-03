@@ -1,170 +1,148 @@
-import os
-import re
 import torch
 import torch.nn as nn
-import torch.optim as optim
-from torch.utils.data import Dataset, DataLoader
-from tqdm import tqdm
+import torch.nn.functional as F
+from torch.optim import Adam
+from torch.utils.data import TensorDataset, DataLoader
+import string
+import random
+import sys
+import unicodedata
+from torch.utils.tensorboard import SummaryWriter
 import datasets
 
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+print("Loading WikiText-103 dataset...")
+dataset = datasets.load_dataset('wikitext', 'wikitext-103-v1')
 
-# Funkcja do przetwarzania tekstu
-def preprocess_text(text):
-    text = text.lower()
-    text = re.sub(r'\s+', ' ', text)
-    return text
+def ensure_unicode(text):
+    if isinstance(text, bytes):
+        return text.decode('utf-8', 'ignore')
+    elif isinstance(text, str):
+        return text
+    else:
+        raise ValueError("Unsupported string type")
 
+def filter_text(text):
+    return ''.join([char for char in text if char in all_chars])
 
-# Dataset do trenowania modelu
-class TextDataset(Dataset):
-    def __init__(self, data, seq_length):
-        self.data = data
-        self.seq_length = seq_length
+train_text = ' '.join(ensure_unicode(text) for text in dataset['train']['text'])
+val_text = ' '.join(ensure_unicode(text) for text in dataset['validation']['text'])
+test_text = ' '.join(ensure_unicode(text) for text in dataset['test']['text'])
 
-    def __len__(self):
-        return len(self.data) - self.seq_length
+all_chars = string.printable
+number_of_chars = len(all_chars)
+print(all_chars)
 
-    def __getitem__(self, idx):
-        return (
-            torch.tensor(self.data[idx:idx + self.seq_length], dtype=torch.long),
-            torch.tensor(self.data[idx + 1:idx + self.seq_length + 1], dtype=torch.long)
-        )
+# Filtrowanie tekstów
+train_text = filter_text(train_text)
+val_text = filter_text(val_text)
+test_text = filter_text(test_text)
+all_text = train_text + val_text + test_text
+number_of_char = len(all_text)
 
+print(len(all_text))
+print(len(train_text))
+print(len(test_text))
+print(len(val_text))
+print(type(train_text))
+print(type(val_text))
+print(type(test_text))
 
-# Model LSTM
-class CustomLSTM(nn.Module):
-    def __init__(self, vocab_size, hidden_size, output_size):
-        super(CustomLSTM, self).__init__()
+class RNN(nn.Module):
+    def __init__(self, input_size, hidden_size, num_layers, output_size):
+        super(RNN, self).__init__()
         self.hidden_size = hidden_size
-        self.embedding = nn.Embedding(vocab_size, hidden_size)
-        self.i2f = nn.Linear(hidden_size + hidden_size, hidden_size)
-        self.i2i = nn.Linear(hidden_size + hidden_size, hidden_size)
-        self.i2o = nn.Linear(hidden_size + hidden_size, hidden_size)
-        self.i2g = nn.Linear(hidden_size + hidden_size, hidden_size)
-        self.h2o = nn.Linear(hidden_size, output_size)
+        self.num_layers = num_layers
 
-    def forward(self, input, hidden, cell):
-        print(f"Input shape: {input.shape}")
-        embedded = self.embedding(input)
-        print(f"Embedded shape: {embedded.shape}")
-        combined = torch.cat((embedded, hidden), 1)
-        print(f"Combined shape: {combined.shape}")
-        f_t = torch.sigmoid(self.i2f(combined))
-        i_t = torch.sigmoid(self.i2i(combined))
-        o_t = torch.sigmoid(self.i2o(combined))
-        g_t = torch.tanh(self.i2g(combined))
-        cell = f_t * cell + i_t * g_t
-        hidden = o_t * torch.tanh(cell)
-        output = self.h2o(hidden)
-        return output, hidden, cell
+        self.embed = nn.Embedding(input_size, hidden_size)
+        self.lstm = nn.LSTM(hidden_size, hidden_size, num_layers, batch_first=True)
+        self.fc = nn.Linear(hidden_size, output_size)
 
-    def init_hidden(self):
-        return torch.zeros(1, self.hidden_size), torch.zeros(1, self.hidden_size)
+    def forward(self, x, hidden, cell):
+        out = self.embed(x)
+        out, (hidden, cell) = self.lstm(out.unsqueeze(1), (hidden, cell))
+        out = self.fc(out.reshape(out.shape[0], -1))
+        return out, (hidden, cell)
 
+    def init_hidden(self, batch_size):
+        hidden = torch.zeros(self.num_layers, batch_size, self.hidden_size).to(device)
+        cell = torch.zeros(self.num_layers, batch_size, self.hidden_size).to(device)
+        return hidden, cell
 
-# Funkcja treningowa
-def train_step(model, input_tensor, target_tensor, criterion, optimizer, device):
-    hidden, cell = model.init_hidden()
-    hidden, cell = hidden.to(device), cell.to(device)
-    model.zero_grad()
-    loss = 0
-    for i in range(len(input_tensor)):
-        input_char = input_tensor[i].unsqueeze(0).to(
-            device)  # Zmieniamy wymiar tensorów wejściowych i przenosimy do GPU
-        target_char = target_tensor[i].to(device)
-        output, hidden, cell = model(input_char, hidden, cell)
-        loss += criterion(output, target_char.view(1))
-    loss.backward()
-    optimizer.step()
-    return loss.item()
+class Generator:
+    def __init__(self):
+        self.chunk_len = 250
+        self.num_epochs = 5000
+        self.batch_size = 1
+        self.print_every = 50
+        self.hidden_size = 256
+        self.num_layers = 2
+        self.lr = 0.003
 
+    def char_tensor(self, string):
+        tensor = torch.zeros(len(string)).long()
+        for c in range(len(string)):
+            tensor[c] = all_chars.index(string[c])
+        return tensor
 
-def train(model, dataloader, epochs, criterion, optimizer, device):
-    model.train()
-    for epoch in range(epochs):
-        total_loss = 0
-        print(f"Starting epoch {epoch + 1}/{epochs}")
-        for inputs, targets in tqdm(dataloader, desc=f"Epoch {epoch + 1}"):
-            inputs, targets = inputs.to(device), targets.to(device)
-            loss = train_step(model, inputs, targets, criterion, optimizer, device)
-            total_loss += loss
-            tqdm.write(f"Batch loss: {loss:.4f}")
-        avg_loss = total_loss / len(dataloader)
-        print(f"Epoch {epoch + 1} completed. Average loss: {avg_loss:.4f}")
+    def get_random_batch(self):
+        start_index = random.randint(0, len(all_text) - self.chunk_len)
+        end_index = start_index + self.chunk_len + 1
+        text_str = all_text[start_index:end_index]
+        text_input = torch.zeros(self.batch_size, self.chunk_len)
+        text_target = torch.zeros(self.batch_size, self.chunk_len)
 
+        for i in range(self.batch_size):
+            text_input[i, :] = self.char_tensor(text_str[:-1])
+            text_target[i, :] = self.char_tensor(text_str[1:])
+        return text_input.long(), text_target.long()
 
-# Funkcja do generowania tekstu
-def generate(model, start_str, length, char_to_idx, idx_to_char, device):
-    model.eval()
-    hidden, cell = model.init_hidden()
-    hidden, cell = hidden.to(device), cell.to(device)
-    input = torch.tensor([char_to_idx[char] for char in start_str], dtype=torch.long).to(device)
-    generated_str = start_str
+    def generate(self, initial_string='T', prediction_length=100, temperature=0.85):
+        hidden, cell = self.rnn.init_hidden(batch_size=self.batch_size)
+        initial_input = self.char_tensor(initial_string)
+        predicted = initial_string
 
-    for _ in range(length):
-        input_char = model.embedding(input[-1].unsqueeze(0))
-        output, hidden, cell = model(input_char, hidden, cell)
-        output_dist = output.data.view(-1).div(0.8).exp()
-        top_i = torch.multinomial(output_dist, 1)[0]
-        predicted_char = idx_to_char[top_i.item()]
-        generated_str += predicted_char
-        input = torch.cat([input, torch.tensor([top_i], dtype=torch.long).to(device)], dim=0)
+        for p in range(len(initial_string) - 1):
+            _, (hidden, cell) = self.rnn(initial_input[p].view(1).to(device), hidden, cell)
 
-    return generated_str
+        last_char = initial_input[-1]
 
+        for p in range(prediction_length):
+            output, (hidden, cell) = self.rnn(last_char.view(1).to(device), hidden, cell)
+            output_dist = output.data.view(-1).div(temperature).exp()
+            top_char = torch.multinomial(output_dist, 1)[0]
+            predicted_char = all_chars[top_char]
+            predicted += predicted_char
+            last_char = self.char_tensor(predicted_char)
+        return predicted
 
-# Główna funkcja
-if __name__ == "__main__":
-    # Sprawdzenie dostępności GPU
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"Using device: {device}")
+    def train(self):
+        self.rnn = RNN(number_of_chars, self.hidden_size, self.num_layers, number_of_chars).to(device)
+        optimizer = torch.optim.Adam(self.rnn.parameters(), lr=self.lr)
+        criterion = nn.CrossEntropyLoss()
+        writer = SummaryWriter(f'runs/names0')
+        print("=> starting training :)")
+        for epoch in range(1, self.num_epochs + 1):
+            inp, target = self.get_random_batch()
+            hidden, cell = self.rnn.init_hidden(batch_size=self.batch_size)
+            self.rnn.zero_grad()
+            loss = 0
+            inp = inp.to(device)
+            target = target.to(device)
 
-    # Ładowanie danych z WikiText-103
-    print("Loading WikiText-103 dataset...")
-    dataset = datasets.load_dataset('wikitext', 'wikitext-103-v1')
+            for c in range(self.chunk_len):
+                output, (hidden, cell) = self.rnn(inp[:, c], hidden, cell)
+                loss += criterion(output, target[:, c])
 
-    # Połączenie wszystkich tekstów w jeden ciąg znaków
-    print("Combining text from all splits...")
-    raw_text = ''
-    for split in ['train', 'validation', 'test']:
-        raw_text += ' '.join(dataset[split]['text'])
+            loss.backward()
+            optimizer.step()
+            loss = loss.item() / self.chunk_len
 
-    # Przetwarzanie tekstu
-    print("Preprocessing text...")
-    processed_text = preprocess_text(raw_text)
-    chars = sorted(list(set(processed_text)))
-    char_to_idx = {char: i for i, char in enumerate(chars)}
-    idx_to_char = {i: char for i, char in enumerate(chars)}
-    data = [char_to_idx[char] for char in processed_text]
+            if epoch % self.print_every == 0:
+                print(f'Loss: {loss}')
+                print(self.generate())
 
-    # Debug printy
-    print(f"Total characters: {len(processed_text)}")
-    print(f"Unique characters: {len(chars)}")
-    print(f"Sample characters to index mapping: {list(char_to_idx.items())[:10]}")
+            writer.add_scalar('Training Loss', loss, global_step=epoch)
 
-    # Przygotowanie datasetu
-    seq_length = 100  # Długość sekwencji
-    print(f"Creating dataset with sequence length: {seq_length}")
-    dataset = TextDataset(data, seq_length)
-    dataloader = DataLoader(dataset, batch_size=64, shuffle=True)
-
-    # Parametry modelu
-    vocab_size = len(char_to_idx)
-    hidden_size = 128
-    output_size = vocab_size
-
-    print("Initializing model...")
-    model = CustomLSTM(vocab_size, hidden_size, output_size).to(device)
-    criterion = nn.CrossEntropyLoss()
-    optimizer = optim.Adam(model.parameters(), lr=0.001)
-
-    # Trening modelu
-    print("Starting training...")
-    train(model, dataloader, epochs=100, criterion=criterion, optimizer=optimizer, device=device)
-
-    # Generowanie tekstu
-    print("Generating text...")
-    start_str = "hello"
-    generated_text = generate(model, start_str, 100, char_to_idx, idx_to_char, device)
-    print("Generated text:")
-    print(generated_text)
+gennames = Generator()
+gennames.train()
