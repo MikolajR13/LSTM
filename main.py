@@ -72,7 +72,7 @@ class RNN(nn.Module):
 class Generator:
     def __init__(self):
 
-        self.chunk_len = 250 # puścić zwiększone do 350 dla lr=0.003 lr=0.0035 i lr=0.004
+        self.chunk_len = 256 # puścić zwiększone do 350 dla lr=0.003 lr=0.0035 i lr=0.004
         self.num_epochs = 10000
         self.batch_size = 1
         self.print_every = 25
@@ -80,8 +80,8 @@ class Generator:
         self.num_layers = 3  # Nie ruszaj
         self.lr = 0.0035 # puścić to oraz dodatkowo bez ruszania chunk_len lr=0.004
         # czyli 5 puszczeń sieci :
-        # 1: chunk_len=250 lr=0.0035
-        # 2: chunk_len=250 lr=0.004
+        # 1: chunk_len=256 lr=0.0035
+        # 2: chunk_len=256 lr=0.004
         # 3: chunk_len=350 lr=0.003
         # 4: chunk_len=350 lr=0.0035
         # 5: chunk_len=350 lr=0.004
