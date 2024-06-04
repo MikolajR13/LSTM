@@ -72,12 +72,12 @@ class RNN(nn.Module):
 class Generator:
     def __init__(self):
         self.chunk_len = 250
-        self.num_epochs = 10000
+        self.num_epochs = 150
         self.batch_size = 1
         self.print_every = 25
         self.hidden_size = 256
-        self.num_layers = 2
-        self.lr = 0.003
+        self.num_layers = 4  # Zwiększona liczba warstw ukrytych
+        self.lr = 0.0035
 
     def char_tensor(self, string):
         tensor = torch.zeros(len(string)).long()
@@ -120,7 +120,7 @@ class Generator:
         self.rnn = RNN(number_of_chars, self.hidden_size, self.num_layers, number_of_chars).to(device)
         optimizer = torch.optim.Adam(self.rnn.parameters(), lr=self.lr)
         criterion = nn.CrossEntropyLoss()
-        writer = SummaryWriter(f'runs/names0')
+        writer = SummaryWriter(f'runs/TextGenerationExperiment')
         print("=> starting training :)")
 
         start_time = time.time()
@@ -140,6 +140,8 @@ class Generator:
             optimizer.step()
             loss = loss.item() / self.chunk_len
 
+            writer.add_scalar('Training Loss', loss, global_step=epoch)
+
             if epoch % self.print_every == 0:
                 print(f'Loss: {loss}')
                 print(self.generate())
@@ -147,12 +149,9 @@ class Generator:
                 estimated_total_time = elapsed_time / epoch * self.num_epochs
                 print(f'Estimated total training time: {estimated_total_time // 60} minutes')
 
-            writer.add_scalar('Training Loss', loss, global_step=epoch)
-
         # Save the model after training
         torch.save(self.rnn.state_dict(), 'trained_rnn.pth')
         print("=> training finished and model saved :)")
-
 
 gennames = Generator()
 gennames.train()
