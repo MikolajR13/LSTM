@@ -71,8 +71,11 @@ class RNN(nn.Module):
 
 class Generator:
     def __init__(self):
+        #dla num_epochs=10000 ma być num_layers=4, lr=0.0035 oraz dla drugiego puszczenia lr=0.004
+        #można też puścić dla num_epochs=10000 z num_layers=3 i lr=0.003 chunk_len=350
+        #i tak samo tylko zmieniamy num_layers=4 lr=0.003 i chunk_len=350
         self.chunk_len = 250
-        self.num_epochs = 150
+        self.num_epochs = 15000
         self.batch_size = 1
         self.print_every = 25
         self.hidden_size = 256
